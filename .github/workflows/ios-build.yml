@@ -1,0 +1,117 @@
+name: Build iOS IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build llama.cpp for iOS
+        run: |
+          sed -i '' 's/\r$//' ios/setup_llama.sh
+          chmod +x ios/setup_llama.sh
+          bash ios/setup_llama.sh
+
+      - name: Fix signing config for CI (ad-hoc)
+        run: |
+          cd ios
+          cat > Flutter/Release.xcconfig << 'XCEOF'
+          #include "Generated.xcconfig"
+          CODE_SIGNING_ALLOWED=YES
+          CODE_SIGNING_REQUIRED=NO
+          CODE_SIGN_IDENTITY=-
+          CODE_SIGN_ENTITLEMENTS=
+          DEVELOPMENT_TEAM=CI
+          XCEOF
+          cat > Flutter/Debug.xcconfig << 'XCEOF'
+          #include "Generated.xcconfig"
+          CODE_SIGNING_ALLOWED=YES
+          CODE_SIGNING_REQUIRED=NO
+          CODE_SIGN_IDENTITY=-
+          CODE_SIGN_ENTITLEMENTS=
+          DEVELOPMENT_TEAM=CI
+          XCEOF
+          sed -i '' 's/CODE_SIGNING_ALLOWED = NO/CODE_SIGNING_ALLOWED = YES/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = YES/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGN_IDENTITY = "[^"]*"/CODE_SIGN_IDENTITY = "-"/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/DEVELOPMENT_TEAM = [^;]*/DEVELOPMENT_TEAM = CI/g' Runner.xcodeproj/project.pbxproj
+          echo "=== Signing config ==="
+          cat Flutter/Release.xcconfig
+          grep -n "CODE_SIGN\|DEVELOPMENT_TEAM\|SIGNING" Runner.xcodeproj/project.pbxproj | head -20
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: stable
+          cache: true
+
+      - name: Create .env file
+        run: |
+          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
+          echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}" >> .env
+          echo "HF_API_KEY=${{ secrets.HF_API_KEY }}" >> .env
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install --repo-update
+
+      - name: Build iOS app
+        run: |
+          echo "=== Starting Flutter iOS build ==="
+          flutter build ios --release --no-codesign || true
+          echo "=== Build step finished ==="
+
+      - name: Find and validate binary
+        run: |
+          echo "=== Searching for Runner binary ==="
+          find build/ios -name "Runner" -not -name "*.d" -not -name "*.o" -type f 2>/dev/null || echo "No Runner binary found"
+          find build/ios -name "Runner.app" -type d 2>/dev/null || echo "No .app found"
+
+          RUNNER_BIN=""
+          for loc in \
+            "build/ios/iphoneos/Runner.app/Runner" \
+            "build/ios/Release-iphoneos/Runner.app/Runner"; do
+            if [ -f "$loc" ]; then
+              RUNNER_BIN="$loc"
+              break
+            fi
+          done
+
+          if [ -z "$RUNNER_BIN" ]; then
+            RUNNER_BIN=$(find build/ios -path "*/Runner.app/Runner" -type f 2>/dev/null | head -1)
+          fi
+
+          if [ -z "$RUNNER_BIN" ]; then
+            echo "ERROR: Runner binary not found"
+            find build/ios -type f -name "Runner*" 2>/dev/null | head -20
+            exit 1
+          fi
+
+          echo "Found Runner at: $RUNNER_BIN"
+          file "$RUNNER_BIN"
+          lipo -info "$RUNNER_BIN" 2>&1 || true
+          ls -lh "$RUNNER_BIN"
+
+          APP_DIR=$(dirname "$RUNNER_BIN")
+          mkdir -p Payload
+          cp -r "$APP_DIR" Payload/
+          zip -r ShadowHub.ipa Payload
+          echo "IPA size: $(du -h ShadowHub.ipa | cut -f1)"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShadowHub-iOS
+          path: ShadowHub.ipa
+          retention-days: 30

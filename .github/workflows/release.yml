@@ -1,0 +1,299 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  # ── iOS Lite (from stable-backup, no offline models) ──
+  build-ios-lite:
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Fix signing config for CI (ad-hoc)
+        run: |
+          cd ios
+          cat > Flutter/Release.xcconfig << 'XCEOF'
+          #include "Generated.xcconfig"
+          CODE_SIGNING_ALLOWED=YES
+          CODE_SIGNING_REQUIRED=NO
+          CODE_SIGN_IDENTITY=-
+          CODE_SIGN_ENTITLEMENTS=
+          DEVELOPMENT_TEAM=CI
+          XCEOF
+          cat > Flutter/Debug.xcconfig << 'XCEOF'
+          #include "Generated.xcconfig"
+          CODE_SIGNING_ALLOWED=YES
+          CODE_SIGNING_REQUIRED=NO
+          CODE_SIGN_IDENTITY=-
+          CODE_SIGN_ENTITLEMENTS=
+          DEVELOPMENT_TEAM=CI
+          XCEOF
+          sed -i '' 's/CODE_SIGNING_ALLOWED = NO/CODE_SIGNING_ALLOWED = YES/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGN_IDENTITY = ""/CODE_SIGN_IDENTITY = "-"/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGN_IDENTITY = "-"/CODE_SIGN_IDENTITY = "-"/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/DEVELOPMENT_TEAM = ""/DEVELOPMENT_TEAM = CI/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/DEVELOPMENT_TEAM = ;/DEVELOPMENT_TEAM = CI;/g' Runner.xcodeproj/project.pbxproj
+          echo "=== Release.xcconfig ==="
+          cat Flutter/Release.xcconfig
+          echo "=== Signing settings in pbxproj ==="
+          grep -n "CODE_SIGN\|DEVELOPMENT_TEAM\|SIGNING" Runner.xcodeproj/project.pbxproj | head -20
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: stable
+          cache: true
+
+      - name: Create .env file
+        run: |
+          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
+          echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}" >> .env
+          echo "HF_API_KEY=${{ secrets.HF_API_KEY }}" >> .env
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install --repo-update
+
+      - name: Build iOS app (ad-hoc signed)
+        run: |
+          flutter build ios --release --no-codesign
+
+      - name: Package IPA
+        run: |
+          RUNNER_BIN=$(find build/ios -path "*/Runner.app/Runner" -type f 2>/dev/null | head -1)
+          if [ -z "$RUNNER_BIN" ]; then
+            echo "ERROR: Runner binary not found"
+            exit 1
+          fi
+          APP_DIR=$(dirname "$RUNNER_BIN")
+          mkdir -p Payload
+          cp -r "$APP_DIR" Payload/
+          zip -r ShadowAI-iOS-Lite.ipa Payload
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShadowAI-iOS-Lite
+          path: ShadowAI-iOS-Lite.ipa
+
+  # ── iOS Full (with llama.cpp offline models) ───────
+  build-ios-full:
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build llama.cpp for iOS
+        run: |
+          sed -i '' 's/\r$//' ios/setup_llama.sh
+          chmod +x ios/setup_llama.sh
+          bash ios/setup_llama.sh
+
+      - name: Fix signing config for CI (ad-hoc)
+        run: |
+          cd ios
+          cat > Flutter/Release.xcconfig << 'XCEOF'
+          #include "Generated.xcconfig"
+          CODE_SIGNING_ALLOWED=YES
+          CODE_SIGNING_REQUIRED=NO
+          CODE_SIGN_IDENTITY=-
+          CODE_SIGN_ENTITLEMENTS=
+          DEVELOPMENT_TEAM=CI
+          XCEOF
+          cat > Flutter/Debug.xcconfig << 'XCEOF'
+          #include "Generated.xcconfig"
+          CODE_SIGNING_ALLOWED=YES
+          CODE_SIGNING_REQUIRED=NO
+          CODE_SIGN_IDENTITY=-
+          CODE_SIGN_ENTITLEMENTS=
+          DEVELOPMENT_TEAM=CI
+          XCEOF
+          sed -i '' 's/CODE_SIGNING_ALLOWED = NO/CODE_SIGNING_ALLOWED = YES/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = YES/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGN_IDENTITY = "[^"]*"/CODE_SIGN_IDENTITY = "-"/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/DEVELOPMENT_TEAM = [^;]*/DEVELOPMENT_TEAM = CI/g' Runner.xcodeproj/project.pbxproj
+          echo "=== Release.xcconfig ==="
+          cat Flutter/Release.xcconfig
+          echo "=== Signing settings in pbxproj ==="
+          grep -n "CODE_SIGN\|DEVELOPMENT_TEAM\|SIGNING" Runner.xcodeproj/project.pbxproj | head -20
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: stable
+          cache: true
+
+      - name: Create .env file
+        run: |
+          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
+          echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}" >> .env
+          echo "HF_API_KEY=${{ secrets.HF_API_KEY }}" >> .env
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install --repo-update
+
+      - name: Build iOS app (ad-hoc signed)
+        run: |
+          flutter build ios --release --no-codesign
+
+      - name: Package IPA
+        run: |
+          RUNNER_BIN=$(find build/ios -path "*/Runner.app/Runner" -type f 2>/dev/null | head -1)
+          if [ -z "$RUNNER_BIN" ]; then
+            echo "ERROR: Runner binary not found"
+            exit 1
+          fi
+          APP_DIR=$(dirname "$RUNNER_BIN")
+          mkdir -p Payload
+          cp -r "$APP_DIR" Payload/
+          zip -r ShadowAI-iOS-Full.ipa Payload
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShadowAI-iOS-Full
+          path: ShadowAI-iOS-Full.ipa
+
+  # ── Android APK ──────────────────────────────────
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Rename APK
+        run: cp build/app/outputs/flutter-apk/app-release.apk ShadowAI-Android.apk
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShadowAI-Android
+          path: ShadowAI-Android.apk
+
+  # ── Windows ──────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows
+        run: flutter build windows --release
+
+      - name: Package ZIP
+        shell: pwsh
+        run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath ShadowAI-Windows.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShadowAI-Windows
+          path: ShadowAI-Windows.zip
+
+  # ── Create Release ─────────────────────────────────
+  release:
+    needs: [build-ios-lite, build-ios-full, build-android, build-windows]
+    if: always() && (needs.build-ios-lite.result == 'success' || needs.build-ios-full.result == 'success' || needs.build-android.result == 'success' || needs.build-windows.result == 'success')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List files
+        run: find artifacts -type f
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          name: Shadow AI v1.0.0
+          body: |
+            ## Shadow AI — Bring Your Own API Keys
+
+            **Consumer version** — add your own API keys on first launch.
+
+            ## Downloads
+
+            | Platform | File | Description |
+            |----------|------|-------------|
+            | **Android** | `ShadowAI-Android.apk` | Android 8+ (arm64) |
+            | **Windows** | `ShadowAI-Windows.zip` | Windows 10+ (x64) |
+            | **iOS Lite** | `ShadowAI-iOS-Lite.ipa` | Online AI only |
+            | **iOS Full** | `ShadowAI-iOS-Full.ipa` | + offline llama.cpp |
+
+            ### iOS Install (sideloading)
+            - **AltStore** — free, refreshes every 7 days
+            - **Sideloadly** — free, drag & drop IPA
+
+            ### API Keys Required
+            Get free API keys from:
+            - [openrouter.ai/keys](https://openrouter.ai/keys) — Free AI access (GPT-4, Claude, etc)
+            - [aistudio.google.com/apikey](https://aistudio.google.com/apikey) — Gemini
+            - [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) — Image generation
+          draft: false
+          prerelease: false
+          make_latest: true
+          files: |
+            artifacts/ShadowAI-iOS-Lite/ShadowAI-iOS-Lite.ipa
+            artifacts/ShadowAI-iOS-Full/ShadowAI-iOS-Full.ipa
+            artifacts/ShadowAI-Android/ShadowAI-Android.apk
+            artifacts/ShadowAI-Windows/ShadowAI-Windows.zip
