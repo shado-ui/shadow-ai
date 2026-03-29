@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 
@@ -46,9 +45,8 @@ class FileReaderService {
       // Images — encode as base64 (truncated for prompt)
       if (_isImage(ext)) {
         final bytes = await file.readAsBytes();
-        final b64 = base64Encode(bytes);
-        // Return a small note + truncated base64 so the AI knows it's an image
-        return '[Image file: base64 data, ${bytes.length} bytes]\nThe user has attached an image. Please describe or analyze it if possible.';
+        // Return a small note so the AI knows it's an image
+        return '[Image file: ${bytes.length} bytes]\nThe user has attached an image. Please describe or analyze it if possible.';
       }
 
       return null;

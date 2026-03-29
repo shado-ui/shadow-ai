@@ -15,7 +15,6 @@ import '../widgets/message_bubble.dart';
 import '../widgets/status_bar.dart';
 import '../widgets/chat_input.dart';
 import '../widgets/typing_indicator.dart';
-import '../models/app_state.dart';
 import '../services/file_reader_service.dart';
 import '../services/background_task_service.dart';
 
@@ -397,8 +396,8 @@ class _ChatScreenState extends State<ChatScreen> {
     } else if (imageBase64 != null && imageMime != null) {
       _bgService.analyzeImage(
         projectId: projectId,
-        base64Image: imageBase64!,
-        mimeType: imageMime!,
+        base64Image: imageBase64,
+        mimeType: imageMime,
         userPrompt: prompt,
         modelId: modelId,
       );

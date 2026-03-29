@@ -58,6 +58,7 @@ class _SetupScreenState extends State<SetupScreen> {
 
     if (mounted) {
       await _checkKeys();
+      if (!mounted) return;
       if (_hasOpenRouter || _hasGemini) {
         Navigator.of(context).pushReplacementNamed('/home');
       }
