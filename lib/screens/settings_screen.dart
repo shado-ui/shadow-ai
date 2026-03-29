@@ -23,10 +23,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _localModelCtrl = TextEditingController();
   final _customHexCtrl = TextEditingController();
   final _veoCtrl = TextEditingController();
+  final _freepikCtrl = TextEditingController();
   bool _obscureGemini = true;
   bool _obscureOR = true;
   bool _obscureHF = true;
   bool _obscureVeo = true;
+  bool _obscureFreepik = true;
 
   @override
   void initState() {
@@ -41,6 +43,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final local = await _db.getSetting('local_gguf_path');
     final hex = await _db.getSetting('custom_theme_hex');
     final veo = await _db.getSetting('veo_key');
+    final freepik = await _db.getSetting('freepik_key');
     if (mounted) {
       setState(() {
         _geminiCtrl.text = gemini ?? '';
@@ -49,6 +52,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _localModelCtrl.text = local ?? '';
         _customHexCtrl.text = hex ?? '';
         _veoCtrl.text = veo ?? '';
+        _freepikCtrl.text = freepik ?? '';
       });
     }
   }
@@ -349,6 +353,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 obscure: _obscureVeo,
                 onToggle: () => setState(() => _obscureVeo = !_obscureVeo),
                 onSave: () => _saveSetting('veo_key', _veoCtrl.text.trim()),
+              ),
+              Divider(color: AppTheme.border, height: 1, indent: 16, endIndent: 16),
+              _buildKeyField(
+                label: 'Freepik API Key (Image Gen)',
+                controller: _freepikCtrl,
+                icon: Icons.image_outlined,
+                obscure: _obscureFreepik,
+                onToggle: () => setState(() => _obscureFreepik = !_obscureFreepik),
+                onSave: () => _saveSetting('freepik_key', _freepikCtrl.text.trim()),
               ),
             ],
           ),

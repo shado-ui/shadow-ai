@@ -44,7 +44,7 @@ class OpenRouterProvider implements AIProvider {
         'messages': orContents,
         'temperature': 0.7,
       }),
-    ).timeout(Duration(seconds: 25));
+    ).timeout(Duration(seconds: 60));
 
     if (res.statusCode != 200) {
       String detail = '';
@@ -120,7 +120,7 @@ class OpenRouterProvider implements AIProvider {
             'messages': messages,
             'temperature': 0.3,
           }),
-        ).timeout(Duration(seconds: 30));
+        ).timeout(Duration(seconds: 60));
 
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);

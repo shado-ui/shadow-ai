@@ -54,7 +54,7 @@ class FreeProvider implements AIProvider {
         'model': 'openai',
         'seed': DateTime.now().millisecondsSinceEpoch,
       }),
-    ).timeout(Duration(seconds: 25));
+    ).timeout(Duration(seconds: 60));
 
     if (res.statusCode != 200) throw Exception('${res.statusCode}');
     final body = res.body.trim();
@@ -89,17 +89,17 @@ class FreeProvider implements AIProvider {
         'messages': messages,
         'temperature': 0.7,
       }),
-    ).timeout(Duration(seconds: 25));
+    ).timeout(Duration(seconds: 60));
 
     if (res.statusCode == 429) {
       // Rate limited — wait briefly and retry once
-      await Future.delayed(Duration(seconds: 1));
+      await Future.delayed(Duration(seconds: 2));
       final retry = await http.post(
         Uri.parse('https://openrouter.ai/api/v1/chat/completions'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $orKey',
-          'HTTP-Referer': 'https://shadowhub.app',
+          'HTTP-Referer': 'https://shadowai.app',
           'X-Title': 'Shadow AI',
         },
         body: jsonEncode({
@@ -107,11 +107,11 @@ class FreeProvider implements AIProvider {
           'messages': messages,
           'temperature': 0.7,
         }),
-      ).timeout(Duration(seconds: 25));
+      ).timeout(Duration(seconds: 45));
       if (retry.statusCode == 200) {
         return _parseOpenRouterResponse(retry.body);
       }
-      throw Exception('429: Provider returned error (rate limited)');
+      throw Exception('Rate limited. Please wait a moment and try again.');
     }
 
     if (res.statusCode != 200) {
@@ -131,15 +131,15 @@ class FreeProvider implements AIProvider {
 
   Future<String> _tryOpenRouterSpecificModel(List<Map<String, String>> messages) async {
     final orKey = await _getOpenRouterKey();
-    // Try a specific free model to bypass the auto-router rate limit
-    // Confirmed working models first, then rate-limited ones as backup
+    // Try specific free models - confirmed working as of March 2026
     final models = [
       'google/gemma-3n-e4b-it:free',
-      'nvidia/nemotron-3-super-120b-a12b:free',
+      'google/gemma-3-4b-it:free',
+      'liquid/lfm-2.5-1.2b-instruct:free',
+      'nvidia/nemotron-nano-9b-v2:free',
       'arcee-ai/trinity-mini:free',
-      'z-ai/glm-4.5-air:free',
-      'stepfun/step-3.5-flash:free',
-      'google/gemma-3-27b-it:free',
+      'google/gemma-3-12b-it:free',
+      'mistralai/mistral-small-3.1-24b-instruct:free',
       'meta-llama/llama-3.3-70b-instruct:free',
     ];
 

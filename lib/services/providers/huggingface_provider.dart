@@ -50,10 +50,10 @@ class HuggingFaceProvider implements AIProvider {
         Uri.parse(fallbackUrl),
         headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
         body: jsonEncode({'inputs': '$stringPrompt\nuser: $prompt\nassistant:', 'parameters': {'max_new_tokens': 1024}}),
-      ).timeout(Duration(seconds: 30));
+      ).timeout(Duration(seconds: 60));
     }
 
-    if (res.statusCode == 503) throw Exception('Model is spinning up, please wait 30s');
+    if (res.statusCode == 503) throw Exception('Model is loading, please wait 30s and try again');
     if (res.statusCode != 200) throw Exception('HF Inference Error ${res.statusCode}');
 
     final data = jsonDecode(res.body);
@@ -61,7 +61,13 @@ class HuggingFaceProvider implements AIProvider {
     return data['choices'][0]['message']['content'] as String;
   }
 
-  static const _freepikKey = '';
+  Future<String> _getFreepikKey() async {
+    var dbKey = await DatabaseService().getSetting('freepik_key');
+    var envKey = dotenv.isInitialized ? dotenv.env['FREEPIK_API_KEY'] : null;
+    if (dbKey != null && dbKey.trim().isNotEmpty) return dbKey.trim();
+    if (envKey != null && envKey.trim().isNotEmpty) return envKey.trim();
+    throw Exception('Freepik API key missing. Get one at freepik.com/api and add it in Settings.');
+  }
 
   @override
   Future<Uint8List> generateImage({required String prompt, required String modelId}) async {
@@ -92,11 +98,12 @@ class HuggingFaceProvider implements AIProvider {
   }
 
   Future<Uint8List> _tryFreepikImage(String prompt) async {
+    final freepikKey = await _getFreepikKey();
     final res = await http.post(
       Uri.parse('https://api.freepik.com/v1/ai/text-to-image'),
       headers: {
         'Content-Type': 'application/json',
-        'x-freepik-api-key': _freepikKey,
+        'x-freepik-api-key': freepikKey,
       },
       body: jsonEncode({
         'prompt': prompt,
@@ -122,7 +129,7 @@ class HuggingFaceProvider implements AIProvider {
   Future<Uint8List> _tryPollinationsImage(String prompt) async {
     final encoded = Uri.encodeComponent(prompt);
     final url = 'https://image.pollinations.ai/prompt/$encoded?width=1024&height=1024&nologo=true&seed=${DateTime.now().millisecondsSinceEpoch}';
-    final res = await http.get(Uri.parse(url)).timeout(Duration(seconds: 60));
+    final res = await http.get(Uri.parse(url)).timeout(Duration(seconds: 90));
 
     if (res.statusCode != 200) {
       throw Exception('Pollinations ${res.statusCode}');
@@ -154,9 +161,13 @@ class HuggingFaceProvider implements AIProvider {
             'num_inference_steps': url.contains('turbo') ? 4 : 20,
           }
         }),
-      ).timeout(Duration(seconds: 60));
+      ).timeout(Duration(seconds: 90));
       if (res.statusCode == 200 && res.bodyBytes.length > 1000) break;
-      if (res.statusCode != 503) break;
+      if (res.statusCode == 503) {
+        await Future.delayed(Duration(seconds: 2));
+        continue;
+      }
+      break;
     }
 
     if (res.statusCode != 200) {
@@ -177,9 +188,9 @@ class HuggingFaceProvider implements AIProvider {
       Uri.parse(url),
       headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
       body: jsonEncode({'inputs': prompt}),
-    ).timeout(Duration(seconds: 60));
+    ).timeout(Duration(seconds: 120));
 
-    if (res.statusCode == 503) throw Exception('Video Model is loading, please wait 30s');
+    if (res.statusCode == 503) throw Exception('Video model is loading, please wait 30s and try again');
     if (res.statusCode != 200) throw Exception('Video Gen Error ${res.statusCode}');
 
     return res.bodyBytes;
